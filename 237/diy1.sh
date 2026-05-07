@@ -1,4 +1,4 @@
-# echo 'src-git istore https://github.com/linkease/istore;main' >> feeds.conf.default
+echo 'src-git istore https://github.com/linkease/istore;main' >> feeds.conf.default
 # 上网时间控制
 # git clone https://github.com/sirpdboy/luci-app-timecontrol package/luci-app-timecontrol
 
@@ -19,8 +19,8 @@
 
 # echo 'src-git nas https://github.com/linkease/nas-packages.git;master' >> feeds.conf.default
 # echo 'src-git nas_luci https://github.com/linkease/nas-packages-luci.git;main' >> feeds.conf.defaul
-#store商店
-git clone https://github.com/linkease/istore.git package/istore
+# store商店
+# git clone https://github.com/linkease/istore.git package/istore
 
 # lucky大吉
 # git clone https://github.com/sirpdboy/luci-app-lucky.git package/lucky
