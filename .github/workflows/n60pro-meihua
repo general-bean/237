@@ -98,6 +98,20 @@ jobs:
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
+
+    - name: 修改 Argon 主题左上角字体变小
+      run: |
+        # 定位 Argon 主题 CSS 文件
+        CSS_FILE="$GITHUB_WORKSPACE/openwrt/feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/css/style.css"
+    
+        # 如果文件存在，替换字体大小（24px → 18px）
+       if [ -f "$CSS_FILE" ]; then
+         sed -i 's/font-size:24px/font-size:18px/g' "$CSS_FILE"
+         sed -i 's/font-size: 24px/font-size: 18px/g' "$CSS_FILE"
+         echo "✅ Argon 左上角字体已修改为 18px（变小）"
+       else
+         echo "⚠️ 未找到 Argon 主题文件，跳过修改"
+       fi
       
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
