@@ -99,11 +99,6 @@ jobs:
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
 
-    - name: small-font
-      run: |
-          find "$GITHUB_WORKSPACE" -name "cascade.css" -o -name "dark.css" | xargs sed -i 's/font-size: 1.8rem/font-size: 1.2rem/g'
-          echo "✅ 字体修改完成（自动搜索路径）"
-
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
