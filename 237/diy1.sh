@@ -25,6 +25,6 @@ git clone https://github.com/linkease/istore.git package/istore
 # lucky大吉
 # git clone https://github.com/sirpdboy/luci-app-lucky.git package/lucky
 
-echo -e "\n&wed2 {\n\tstatus = \"disabled\";\n};" >> target/linux/mediatek/dts/mt7986a-netcore-n60-pro.dts
+# echo -e "\n&wed2 {\n\tstatus = \"disabled\";\n};" >> target/linux/mediatek/dts/mt7986a-netcore-n60-pro.dts
 
 
