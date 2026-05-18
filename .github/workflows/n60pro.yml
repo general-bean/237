@@ -14,7 +14,7 @@ env:
   REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: 237/N60pro.config
-  EEPROM_FILE: 
+  EEPROM_FILE: 237/EEPROM_AX6000.bin
   DIY_P1_SH: 237/diy1.sh
   DIY_P2_SH: 237/diy2.sh
   UPLOAD_BIN_DIR: false
@@ -93,6 +93,7 @@ jobs:
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        [ -e $EEPROM_FILE ] && mv $EEPROM_FILE openwrt/package/mtk/drivers/mt_wifi/files/mt7986-default-eeprom/MT7986_iPAiLNA_EEPROM_AX6000.bin
         chmod +x $DIY_P1_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
