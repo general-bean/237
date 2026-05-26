@@ -236,7 +236,7 @@ jobs:
           ${{ env.PACKAGES_TAR }}
 
     - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2.1.0
+      uses: Mattraks/delete-workflow-runs@v2
       with:
         retain_days: 5
         keep_minimum_runs: 5
