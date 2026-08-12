@@ -23,6 +23,10 @@ rm -rf feeds/packages/net/open-app-filter
 # store商店
 git clone https://github.com/linkease/istore.git package/istore
 
+rm -rf feeds/luci/applications/luci-app-ssr-plus
+# ssrplus
+git clone https://github.com/fw876/helloworld.git package/helloworld
+
 # oaf
 git clone https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
 
