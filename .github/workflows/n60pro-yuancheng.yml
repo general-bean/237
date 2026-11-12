@@ -53,23 +53,7 @@ jobs:
         npm_clean: "True"
         os_swap: "True"
 
-    - name: Remove snapd and useless packages
-      run: |
-       # 停止并卸载所有snap应用
-        sudo snap remove firefox 2>/dev/null || true
-        sudo snap remove snap-store 2>/dev/null || true
-        sudo snap remove gtk-common-themes 2>/dev/null || true
-        sudo snap remove core22 2>/dev/null || true
-        sudo snap remove bare 2>/dev/null || true
-    
-       # 卸载snapd服务
-        sudo apt purge -y snapd
-        sudo apt autoremove -y --purge
-        sudo apt clean
-    
-       # 阻止后续再自动安装snap版firefox
-        sudo apt-mark hold snapd firefox
-
+   
 
     - name: Free up disk space complete
       run: |
