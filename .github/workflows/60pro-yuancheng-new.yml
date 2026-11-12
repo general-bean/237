@@ -1,0 +1,310 @@
+name: n60pro-yuancheng-new
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6.git
+  REPO_BRANCH: openwrt-24.10-6.6
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: 237/N60pro.config
+  DIY_P1_SH: 237/diy3.sh
+  DIY_P2_SH: 237/diy2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Before freeing up disk space
+        run: |
+          echo "Before freeing up disk space"
+          echo "=============================================================================="
+          df -hT
+          echo "=============================================================================="
+
+      - name: Optimize disk space
+        uses: hugoalh/disk-space-optimizer-ghaction@v0.8.1
+        with:
+          operate_sudo: "True"
+          general_include: ".+"
+          general_exclude: |-
+            ^GCC$
+            ^G\+\+$
+            Clang
+            LLVM
+          docker_include: ".+"
+          docker_prune: "True"
+          docker_clean: "True"
+          apt_prune: "True"
+          apt_clean: "True"
+          homebrew_prune: "True"
+          homebrew_clean: "True"
+          npm_prune: "True"
+          npm_clean: "True"
+          os_swap: "True"
+
+      - name: Free up disk space complete
+        run: |
+          echo "Free up disk space complete"
+          echo "=============================================================================="
+          df -hT
+          echo "=============================================================================="
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate custom files
+        run: |
+          set -euo pipefail
+          for path in "$CONFIG_FILE" "$DIY_P1_SH" "$DIY_P2_SH"; do
+            if [[ ! -f "$path" ]]; then
+              echo "::error::Required file not found: $path"
+              exit 1
+            fi
+          done
+          bash -n "$DIY_P1_SH"
+          bash -n "$DIY_P2_SH"
+
+      - name: Initialize build environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq full-upgrade -y
+          sudo -E apt-get -qq install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar file flex gawk \
+            gcc-multilib g++-multilib genisoimage gettext git gperf haveged help2man intltool \
+            lib32gcc-s1 libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev \
+            libgnutls28-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev lld llvm lrzsz msmtp nano ninja-build \
+            p7zip p7zip-full patch pkgconf python3 python3-docutils python3-pip python3-ply \
+            python3-pyelftools python3-setuptools qemu-utils re2c rsync scons squashfs-tools \
+            subversion swig texinfo uglifyjs upx-ucl unzip vim wget which xmlto xxd zlib1g-dev zstd
+          # GNU install is provided by coreutils. Reinstall it in case disk cleanup damaged or removed it.
+          sudo -E apt-get -qq install -y --reinstall coreutils
+          sudo -E apt-get -qq autoremove -y --purge
+          sudo -E apt-get -qq clean
+          sudo timedatectl set-timezone "$TZ"
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+          command -v install
+          install --version
+
+      - name: Clone source code
+        run: |
+          set -euo pipefail
+          if [[ -e openwrt ]]; then
+            echo "::error::The path already exists: $GITHUB_WORKSPACE/openwrt"
+            exit 1
+          fi
+          git clone --depth=1 --single-branch --branch "$REPO_BRANCH" "$REPO_URL" openwrt
+
+      - name: Update and install feeds
+        run: |
+          set -euo pipefail
+          cd openwrt
+          if [[ -f "$GITHUB_WORKSPACE/$FEEDS_CONF" ]]; then
+            cp -f "$GITHUB_WORKSPACE/$FEEDS_CONF" feeds.conf.default
+          fi
+          ./scripts/feeds update -a
+          bash "$GITHUB_WORKSPACE/$DIY_P1_SH"
+          ./scripts/feeds install -a
+
+      - name: Load custom configuration
+        run: |
+          set -euo pipefail
+          if [[ -d "$GITHUB_WORKSPACE/files" ]]; then
+            mkdir -p openwrt/files
+            cp -a "$GITHUB_WORKSPACE/files/." openwrt/files/
+          fi
+          install -m 0644 "$CONFIG_FILE" openwrt/.config
+          cd openwrt
+          bash "$GITHUB_WORKSPACE/$DIY_P2_SH"
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+          command -v install
+          install --version
+          make defconfig
+
+      - name: Download package sources
+        id: package
+        run: |
+          set -euo pipefail
+          cd openwrt
+          jobs=$(( $(nproc) * 3 / 2 ))
+          if ! make download -j"$jobs" V=s; then
+            echo "::warning::Parallel download failed; retrying with one job for a readable error log."
+            make download -j1 V=s
+          fi
+          echo "Files smaller than 1 KiB may be incomplete downloads:"
+          find dl -type f -size -1024c -print
+
+      - name: Compile the firmware
+        id: compile
+        run: |
+          set -euo pipefail
+          cd openwrt
+          jobs=$(nproc)
+          echo "CPU threads: $jobs"
+          if ! make -j"$jobs" V=s; then
+            echo "::warning::Parallel build failed; retrying with one job and verbose output."
+            make -j1 V=s
+          fi
+
+          mapfile -t devices < <(sed -nE 's/^CONFIG_TARGET.*DEVICE_(.*)=y$/\1/p' .config)
+          if (( ${#devices[@]} == 0 )); then
+            echo "::error::No enabled target device was found in .config."
+            exit 1
+          fi
+          device_name=$(printf '%s' "${devices[*]}" | tr ' ' '-')
+          echo "status=success" >> "$GITHUB_OUTPUT"
+          echo "DEVICE_NAME=_${device_name}" >> "$GITHUB_ENV"
+          echo "FILE_DATE=_$(date +'%Y%m%d%H%M')" >> "$GITHUB_ENV"
+
+      - name: Check space usage
+        if: always()
+        run: df -hT
+
+      - name: Upload bin directory
+        if: success() && steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: openwrt/bin
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Organize files
+        id: organize
+        if: success() && (env.UPLOAD_FIRMWARE == 'true' || env.UPLOAD_RELEASE == 'true')
+        run: |
+          set -euo pipefail
+          cd openwrt
+          mapfile -t firmware_dirs < <(find bin/targets -mindepth 2 -maxdepth 2 -type d -print | sort)
+          if (( ${#firmware_dirs[@]} != 1 )); then
+            echo "::error::Expected exactly one firmware output directory, found ${#firmware_dirs[@]}."
+            printf '%s\n' "${firmware_dirs[@]}"
+            exit 1
+          fi
+
+          firmware_dir=$(realpath "${firmware_dirs[0]}")
+          find "$firmware_dir" -maxdepth 1 -type f \( \
+            -name '*initramfs*.bin' -o -name '*.manifest' -o -name '*bl2.bin' -o \
+            -name 'version.buildinfo' -o -name 'sha256sums' -o -name 'profiles.json' -o \
+            -name 'feeds.buildinfo' \
+          \) -delete
+
+          if [[ -z "$(find "$firmware_dir" -maxdepth 1 -type f -print -quit)" ]]; then
+            echo "::error::No firmware files remain after organizing: $firmware_dir"
+            exit 1
+          fi
+          echo "FIRMWARE=$firmware_dir" >> "$GITHUB_ENV"
+          echo "PACKAGES_DIR=$GITHUB_WORKSPACE/openwrt/bin/packages" >> "$GITHUB_ENV"
+          echo "status=success" >> "$GITHUB_OUTPUT"
+
+      - name: Upload firmware directory
+        if: success() && env.UPLOAD_FIRMWARE == 'true' && steps.organize.outputs.status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: ${{ env.FIRMWARE }}
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Package plugins directory
+        id: package_plugins
+        if: success() && steps.organize.outputs.status == 'success'
+        run: |
+          set -euo pipefail
+          if [[ -d "$PACKAGES_DIR" ]] && [[ -n "$(find "$PACKAGES_DIR" -type f -print -quit)" ]]; then
+            packages_tar="$GITHUB_WORKSPACE/packages.tar.gz"
+            tar -C "$PACKAGES_DIR" -czf "$packages_tar" .
+            echo "PACKAGES_TAR=$packages_tar" >> "$GITHUB_ENV"
+            echo "status=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No package files found; the packages archive will be skipped."
+            echo "status=skipped" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate release tag
+        id: tag
+        if: success() && env.UPLOAD_RELEASE == 'true' && steps.organize.outputs.status == 'success'
+        run: |
+          set -euo pipefail
+          release_tag="netcore-n60pro-yuancheng-new-$(date +'%Y%m%d%H%M')-${GITHUB_RUN_ID}"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          cat > release.txt <<EOF
+          Source: $REPO_URL
+          Branch: $REPO_BRANCH
+          Build time: $(date +'%Y-%m-%d %H:%M:%S')
+
+          Management address: 192.168.2.1
+          Username: root
+          Password: password (or blank)
+          EOF
+          echo "status=success" >> "$GITHUB_OUTPUT"
+
+      - name: Upload firmware to release
+        if: success() && steps.tag.outputs.status == 'success'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: |
+            ${{ env.FIRMWARE }}/*
+
+      - name: Upload packages to release
+        if: success() && steps.tag.outputs.status == 'success' && steps.package_plugins.outputs.status == 'success'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: ${{ env.PACKAGES_TAR }}
+
+      - name: Delete old workflow runs
+        if: success()
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          retain_days: 5
+          keep_minimum_runs: 5
+
+      - name: Remove old releases
+        if: success() && env.UPLOAD_RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t releases < <(
+            gh release list --limit 1000 --json tagName \
+              --jq '.[].tagName | select(startswith("netcore-n60pro-yuancheng-new"))'
+          )
+          if (( ${#releases[@]} > 10 )); then
+            for tag in "${releases[@]:10}"; do
+              gh release delete "$tag" --yes --cleanup-tag
+            done
+          fi
